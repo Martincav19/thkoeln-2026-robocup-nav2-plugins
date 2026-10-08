@@ -1,4 +1,4 @@
-# RoboCup Nav2 Plugins
+# TH Köln 2026 RoboCup German Open Nav2 Plugins
 
 This repository contains the custom Navigation2 plugins developed for our RoboCup@Work navigation stack.
 
