@@ -1,0 +1,183 @@
+
+<!--
+  This Behavior Tree replans the global path periodically at 1 Hz and it also has
+  recovery actions specific to planning / control as well as general system issues.
+  This will be continuous if a kinematically valid planner is selected.
+-->
+<root BTCPP_format="4" main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <RecoveryNode number_of_retries="6" name="NavigateRecovery">
+      <PipelineSequence name="NavigateWithReplanning">
+        <ControllerSelector selected_controller="{selected_controller}" default_controller="FollowPath" topic_name="controller_selector"/>
+        <PlannerSelector selected_planner="{selected_planner}" default_planner="GridBased" topic_name="planner_selector"/>
+        <RateController hz="0.5">
+          <RecoveryNode number_of_retries="1" name="ComputePathToPose">
+            <Sequence name="ComputeAndSmoothPath">
+              <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased" error_code_id="{compute_path_error_code}" />
+              <SmoothPath unsmoothed_path="{path}" smoothed_path="{smoothed_path}" error_code_id="{smoother_error_code}" />
+            </Sequence>
+            <Sequence>
+              <WouldAPlannerRecoveryHelp error_code="{compute_path_error_code}"/>
+              <ClearEntireCostmap name="ClearGlobalCostmap-Context" service_name="global_costmap/clear_entirely_global_costmap"/>
+            </Sequence>
+          </RecoveryNode>
+        </RateController>
+        <RecoveryNode number_of_retries="3" name="FollowPath">
+          <Sequence>
+            <NonblockingSequence>
+
+              <ReactiveFallback name="RotateAndFollowPath">
+
+                <Fallback>
+
+                  <Sequence>
+                    <IsGoalStationCritical goal="{goal}" 
+                                           goal_dist_threshold="0.1"/>
+                    <RotationNeeded goal="{goal}" 
+                                    path="{smoothed_path}" 
+                                    robot_base_frame="base_footprint" 
+                                    ideal_heading_direction="{ideal_heading_direction}" 
+                                    always_rotate="true"
+                                    near_goal_dist="1.0"/>
+                    <CanRotate can_rotate="{can_rotate}"/>
+                    <ForceFailure>
+                      <AlignHeadingToPathOpenLoop goal="{goal}" 
+                                                  ideal_heading_direction="{ideal_heading_direction}" 
+                                                  path="{smoothed_path}" 
+                                                  server_name="spin" 
+                                                  server_timeout="20" 
+                                                  time_allowance="20" 
+                                                  is_recovery="false" 
+                                                  error_code_id="{spin_error_code}"
+                                                  near_goal_dist="1.0"/>
+                    </ForceFailure>
+                  </Sequence>
+
+                  <Sequence>
+                    <Inverter>
+                      <IsGoalStationCritical goal="{goal}" />
+                    </Inverter>
+                    <RotationNeeded goal="{goal}" 
+                                    path="{smoothed_path}" 
+                                    robot_base_frame="base_footprint" 
+                                    ideal_heading_direction="{ideal_heading_direction}" 
+                                    always_rotate="true"
+                                    near_goal_dist="0.4"/>
+                    <CanRotate can_rotate="{can_rotate}"/>
+                    <ForceFailure>
+                      <AlignHeadingToPathOpenLoop goal="{goal}" 
+                                                  ideal_heading_direction="{ideal_heading_direction}" 
+                                                  path="{smoothed_path}" 
+                                                  server_name="spin" 
+                                                  server_timeout="20" 
+                                                  time_allowance="20" 
+                                                  is_recovery="false" 
+                                                  error_code_id="{spin_error_code}"
+                                                  near_goal_dist="0.4"/>
+                    </ForceFailure>
+                  </Sequence>
+
+                </Fallback>
+
+                <FollowPath path="{smoothed_path}" controller_id="{selected_controller}" error_code_id="{follow_path_error_code}"/>
+
+              </ReactiveFallback>
+              
+              <ForceSuccess>
+                <RateController hz="5.0">
+                  <CanRotateMonitor can_rotate="{can_rotate}"/>
+                </RateController>
+              </ForceSuccess>
+
+            </NonblockingSequence>
+
+            <RecoveryNode number_of_retries="3" name="Docking">
+              <Sequence>
+
+                <DockToStation  goal="{goal}"
+                    time_allowance="10" 
+                    standoff_distance="0.10"
+                    use_docking="true"/>
+
+                <CenterToStation  time_allowance="10" 
+                    center_to_station_speed="0.150"/>
+
+              </Sequence>
+              <BackUp backup_dist="0.20" backup_speed="0.15" error_code_id="{backup_code_id}" time_allowance="4.0"/>
+
+            </RecoveryNode>
+          </Sequence>
+
+          <Sequence>
+            <Sequence>
+              <WouldAControllerRecoveryHelp error_code="{follow_path_error_code}"/>
+              <ClearEntireCostmap name="ClearLocalCostmap-Context" service_name="local_costmap/clear_entirely_local_costmap"/>
+            </Sequence>
+            <Fallback>
+
+              <Sequence>
+                <Wait wait_duration="0.1"/>
+                <ForceSuccess>
+                  <AlignHeadingToPathOpenLoop goal="{goal}" ideal_heading_direction="{ideal_heading_direction}" path="{smoothed_path}" server_name="spin" server_timeout="20" time_allowance="8" is_recovery="true" error_code_id="{spin_error_code}"/>
+                </ForceSuccess>
+              </Sequence>
+
+              <RoundRobin>
+                <Sequence>
+                  <Wait wait_duration="0.1"/>
+                  <MoveRight move_right_dist="0.10" move_right_speed="0.15" error_code_id="{move_right_code_id}" time_allowance="3.0"/>
+                  <ForceSuccess>
+                    <AlignHeadingToPathOpenLoop goal="{goal}" ideal_heading_direction="{ideal_heading_direction}" path="{smoothed_path}" server_name="spin" server_timeout="20" time_allowance="8" is_recovery="true" error_code_id="{spin_error_code}"/>
+                  </ForceSuccess>
+                </Sequence>
+                <Sequence>
+                  <Wait wait_duration="0.1"/>
+                  <MoveLeft move_left_dist="0.10" move_left_speed="0.15" error_code_id="{move_left_code_id}" time_allowance="3.0"/>
+                  <ForceSuccess>
+                    <AlignHeadingToPathOpenLoop goal="{goal}" ideal_heading_direction="{ideal_heading_direction}" path="{smoothed_path}" server_name="spin" server_timeout="20" time_allowance="8" is_recovery="true" error_code_id="{spin_error_code}"/>
+                  </ForceSuccess>
+                </Sequence>
+
+                <Sequence>
+                  <Wait wait_duration="0.1"/>
+                  <BackUp backup_dist="0.20" backup_speed="0.15" error_code_id="{backup_code_id}" time_allowance="4.0"/>
+                  <ForceSuccess>
+                    <AlignHeadingToPathOpenLoop goal="{goal}" ideal_heading_direction="{ideal_heading_direction}" path="{smoothed_path}" server_name="spin" server_timeout="20" time_allowance="8" is_recovery="true" error_code_id="{spin_error_code}"/>
+                  </ForceSuccess>
+                </Sequence>
+                <Sequence>
+                  <Wait wait_duration="0.1"/>
+                  <MoveForward move_forward_dist="0.20" move_forward_speed="0.15" error_code_id="{move_forward_code_id}" time_allowance="4.0"/>
+                  <ForceSuccess>
+                    <AlignHeadingToPathOpenLoop goal="{goal}" ideal_heading_direction="{ideal_heading_direction}" path="{smoothed_path}" server_name="spin" server_timeout="20" time_allowance="8" is_recovery="true" error_code_id="{spin_error_code}"/>
+                  </ForceSuccess>
+                </Sequence>
+
+                <Sequence>
+                  <Wait wait_duration="0.1"/>
+                    <AlignHeadingToPathOpenLoop goal="{goal}" ideal_heading_direction="{ideal_heading_direction}" path="{smoothed_path}" server_name="spin" server_timeout="20" time_allowance="8" is_recovery="true" error_code_id="{spin_error_code}"/>
+                </Sequence>
+                
+              </RoundRobin>
+            </Fallback>
+          </Sequence>
+        </RecoveryNode>
+      </PipelineSequence>
+      <Sequence>
+        <Fallback>
+          <WouldAControllerRecoveryHelp error_code="{follow_path_error_code}"/>
+          <WouldAPlannerRecoveryHelp error_code="{compute_path_error_code}"/>
+        </Fallback>
+        <ReactiveFallback name="RecoveryFallback">
+          <GoalUpdated/>
+          <RoundRobin name="RecoveryActions">
+            <BackUp backup_dist="0.15" backup_speed="0.15" error_code_id="{backup_code_id}"/>
+            <Wait wait_duration="5.0"/>
+            <BackUp backup_dist="0.15" backup_speed="0.15" error_code_id="{backup_code_id}"/>
+            <Wait wait_duration="5.0"/>
+          </RoundRobin>
+        </ReactiveFallback>
+      </Sequence>
+    </RecoveryNode>
+  </BehaviorTree>
+</root>

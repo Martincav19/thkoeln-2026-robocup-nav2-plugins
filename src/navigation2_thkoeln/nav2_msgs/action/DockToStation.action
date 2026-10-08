@@ -1,0 +1,48 @@
+
+# -----------------------
+# Goal
+# -----------------------
+uint8 FRONT=0
+uint8 BACK=1
+uint8 LEFT=2
+uint8 RIGHT=3
+uint8 docking_side
+
+# Desired distance from platform (meters)
+float32 standoff_distance
+
+# Motion limits for this behavior
+float32 max_linear_speed
+float32 max_angular_speed
+
+# If true: keep applying small corrections after reaching tolerance
+# until action is cancelled or time_allowance expires.
+bool maintain_alignment
+
+# Timeout for the whole behavior
+builtin_interfaces/Duration time_allowance
+
+---
+# -----------------------
+# Result
+# -----------------------
+uint16 NONE=0
+uint16 UNKNOWN=720
+uint16 TIMEOUT=721
+uint16 TF_ERROR=722
+uint16 COLLISION_AHEAD=723
+uint16 INVALID_INPUT=724
+
+builtin_interfaces/Duration total_elapsed_time
+uint16 error_code
+string message
+bool success
+
+---
+# -----------------------
+# Feedback
+# -----------------------
+float32 yaw_error
+float32 lateral_error
+float32 distance_error
+
